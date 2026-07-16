@@ -138,6 +138,14 @@ app = Flask(__name__, static_folder=None)
 def index():
     return send_from_directory(STATIC_DIR, "index.html")
 
+@app.route("/styles.css")
+def styles_css():
+    return send_from_directory(STATIC_DIR, "styles.css")
+
+@app.route("/app.js")
+def app_js():
+    return send_from_directory(STATIC_DIR, "app.js")
+
 @app.route("/api/data")
 def api_data():
     with state_lock:
