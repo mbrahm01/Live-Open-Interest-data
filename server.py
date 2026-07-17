@@ -20,12 +20,12 @@ from queue import Queue, Empty
 import os
 import requests
 from dotenv import load_dotenv
-from flask import Flask, Response, jsonify, send_from_directory
+from flask import Flask, Response, jsonify, send_from_directory, request
 
 # ── Config ─────────────────────────────────────────────────────────────────────
 load_dotenv(Path(__file__).with_name(".env"))
 NSE_URL = os.getenv("API")
-
+EXPIRY_URL = os.getenv("NIFTY_CONTRACT_INFO")
 HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -70,15 +70,35 @@ def make_session() -> requests.Session:
     return s
 
 # ── Fetch ──────────────────────────────────────────────────────────────────────
-def fetch_once(session: requests.Session):
+def fetch_once(session: requests.Session, expiry=None):
+    params = {"symbol": "NIFTY"}
+    if expiry:
+        params["expiry"] = expiry
     try:
-        resp = session.get(NSE_URL, timeout=15)
+        resp = session.get(NSE_URL, params=params, timeout=15)
         resp.raise_for_status()
         return resp.json()
     except Exception as exc:
         log.error("Fetch error: %s", exc)
         return None
+def fetch_expiry_dates(session):
+    """One-time call to a separate endpoint that just returns contract/expiry dates."""
+    try:
+        resp = session.get(EXPIRY_URL, params={"symbol": "NIFTY"}, timeout=5)
+        resp.raise_for_status()
+        payload = resp.json()
+        # adjust key based on actual response shape, e.g. payload["expiryDates"]
+        return payload.get("expiryDates", [])
+    except Exception:
+        log.exception("Failed to fetch expiry dates")
+        return []
 
+def set_selected_expiry(expiry: str) -> bool:
+    with state_lock:
+        if expiry not in state.get("available_expiries", []):
+            return False
+        state["selected_expiry"] = expiry
+    return True
 # ── Broadcast to all SSE clients ───────────────────────────────────────────────
 def broadcast(event: str, payload: dict):
     msg = f"event: {event}\ndata: {json.dumps(payload)}\n\n"
@@ -97,39 +117,64 @@ def poller():
     session = make_session()
     last_session_time = time.time()
 
+    # ── one-time contract-dates fetch, outside the main loop ──
+    available_expiries = fetch_expiry_dates(session)
+    selected_expiry = available_expiries[0] if available_expiries else None  # default to first value
+
+    with state_lock:
+        state["available_expiries"] = available_expiries
+        state["selected_expiry"]    = selected_expiry
+
+    if available_expiries:
+        broadcast("expiry_list", {
+            "expiries": available_expiries,
+            "selected": selected_expiry,
+        })
+    else:
+        log.warning("No expiry dates fetched — expiry endpoint may have failed")
+
     while True:
         if time.time() - last_session_time > SESSION_REFRESH:
             session = make_session()
             last_session_time = time.time()
 
-        log.info("Fetching NSE data…")
-        data = fetch_once(session)
-        now  = datetime.now().strftime("%d-%b-%Y %H:%M:%S")
+        with state_lock:
+            active_expiry = state["selected_expiry"]
+
+        log.info("Fetching NSE data… expiry=%s", active_expiry)
+        data = fetch_once(session, expiry=active_expiry)
+        now = datetime.now().strftime("%d-%b-%Y %H:%M:%S")
 
         with state_lock:
             if data:
                 state["data"]       = data
                 state["fetched_at"] = now
                 state["error"]      = None
+                state["expiry"]     = active_expiry
                 spot = data.get("records", {}).get("underlyingValue", "?")
-                log.info("✓ Updated  spot=%s", spot)
+                log.info("✓ Updated  spot=%s expiry=%s", spot, active_expiry)
                 broadcast("update", {
                     "data":       data,
                     "fetched_at": now,
                     "error":      None,
                     "next_in":    POLL_INTERVAL,
+                    "expiry":     active_expiry,
                 })
             else:
                 state["error"] = f"Fetch failed at {now}"
                 log.warning("Fetch failed, keeping previous data")
                 broadcast("error", {"error": state["error"]})
 
-        # Countdown ticks every second so the browser ring stays accurate
         for remaining in range(POLL_INTERVAL - 1, 0, -1):
             time.sleep(1)
+            with state_lock:
+                if state["selected_expiry"] != active_expiry:
+                    log.info("Expiry changed by user → refetching immediately")
+                    break
             broadcast("tick", {"next_in": remaining})
-
-        time.sleep(1)  # final second
+        else:
+            time.sleep(1)
+            continue
 
 # ── Flask ──────────────────────────────────────────────────────────────────────
 app = Flask(__name__, static_folder=None)
@@ -157,7 +202,15 @@ def api_data():
             "error":      state["error"],
             "next_in":    state["next_in"],
         })
-
+@app.route("/select_expiry", methods=["POST"])
+def select_expiry():
+    body = request.get_json(silent=True) or {}
+    expiry = body.get("expiry")
+    if not expiry:
+        return {"ok": False, "error": "missing expiry"}, 400
+    if set_selected_expiry(expiry):
+        return {"ok": True}, 200
+    return {"ok": False, "error": "invalid expiry"}, 400
 @app.route("/api/stream")
 def api_stream():
     q: Queue = Queue(maxsize=20)
@@ -166,12 +219,20 @@ def api_stream():
 
     # Send current snapshot immediately so the page doesn't wait 60 s
     with state_lock:
+        if state.get("available_expiries"):
+            expiry_payload = json.dumps({
+                "expiries": state["available_expiries"],
+                "selected": state["selected_expiry"],
+            })
+            q.put_nowait(f"event: expiry_list\ndata: {expiry_payload}\n\n")
+
         if state["data"]:
             payload = json.dumps({
                 "data":       state["data"],
                 "fetched_at": state["fetched_at"],
                 "error":      state["error"],
                 "next_in":    state["next_in"],
+                "expiry":     state.get("selected_expiry"),
             })
             q.put_nowait(f"event: update\ndata: {payload}\n\n")
 
