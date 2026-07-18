@@ -5,12 +5,13 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
 <title>NSE OI Dashboard</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
-<link rel="stylesheet" href="/styles.css">
+<link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
 </head>
 <body>
 
 <header>
   <div class="logo">NSE <span>OI</span> Dashboard</div>
+  <button id="logoutBtn">Logout</button>
   <div class="hright">
     <div class="badge">
       <div class="dot" id="dot"></div>
@@ -104,8 +105,6 @@
 
 <div id="toast"></div>
 
-<script src="/app.js"></script>
-</body>
-</html>
+<script src="{{ url_for('static', filename='app.js') }}"></script>
 </body>
 </html>

@@ -3,7 +3,31 @@
   margin: 0;
   padding: 0;
 }
+.dot.off {
+  background: #8b949e; /* neutral grey — markets closed, not an error */
+  box-shadow: none;
+}
+#logoutBtn {
+  padding: 6px 14px;
+  background: transparent;
+  border: 1px solid #30363d;
+  border-radius: 6px;
+  color: #8b949e;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
 
+#logoutBtn:hover {
+  border-color: #f85149;
+  color: #f85149;
+  background: rgba(248, 81, 73, 0.08);
+}
+
+#logoutBtn:active {
+  background: rgba(248, 81, 73, 0.15);
+}
 :root {
   --bg: #0d1117;
   --surface: #161b22;

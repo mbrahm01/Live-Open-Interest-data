@@ -18,6 +18,7 @@ let rawData = null;
 let charts = {};
 let expiry = '';
 let topN = 30;
+let marketOpen = true; // assume open until the market_status event says otherwise
 let sortOI = false;
 
 const ARC = 56.55;
@@ -45,7 +46,6 @@ function parseOI(data, expiry, topN, sortOI) {
         const ce = row.CE || {};
         const pe = row.PE || {};
 
-        // no expiry filter here anymore — rawData is already scoped server-side
         const existing = map.get(strike) || { ceOI: 0, peOI: 0, ceChg: 0, peChg: 0 };
         map.set(strike, {
             ceOI: existing.ceOI + (ce.openInterest || 0),
@@ -53,7 +53,7 @@ function parseOI(data, expiry, topN, sortOI) {
             ceChg: existing.ceChg + (ce.changeinOpenInterest || 0),
             peChg: existing.peChg + (pe.changeinOpenInterest || 0),
         });
-    
+
     }
 
     let entries = [...map.entries()]
@@ -237,65 +237,104 @@ function ingest(payload) {
     render();
 }
 
-
-
 function connectSSE() {
     const dot = document.getElementById('dot');
     const st = document.getElementById('stTxt');
     dot.className = 'dot';
     st.textContent = 'Connecting…';
-    const es = new EventSource('/api/stream');
 
-    es.addEventListener('update', e => {
-        const pl = JSON.parse(e.data);
-        dot.className = 'dot live';
-        st.textContent = 'Live';
-        ingest(pl);
-        toast('✓ Charts updated');
-    });
-
-    es.addEventListener('tick', e => {
-        const pl = JSON.parse(e.data);
-        setRing(pl.next_in);
-    });
-
-    es.addEventListener('error', e => {
-        try { toast('⚠ ' + JSON.parse(e.data).error, 4000); } catch { }
-    });
-
-    es.onerror = () => {
-        dot.className = 'dot err';
-        st.textContent = 'Reconnecting…';
-    };
-    es.addEventListener('expiry_list', (e) => {
-        const { expiries, selected } = JSON.parse(e.data);
-        const sel = document.getElementById('expSel');
-        sel.innerHTML = '';
-        expiries.forEach((exp) => {
-            const opt = document.createElement('option');
-            opt.value = exp;
-            opt.textContent = exp;
-            sel.appendChild(opt);
-        });
-        if (!expiry) {
-            expiry = selected || expiries[0];
+    fetch('/api/whoami').then(res => res.json()).then(data => {
+        if (!data.logged_in) {
+            window.location.href = '/login';
+            return;
         }
-        sel.value = expiry;
-        render();
-    });
+        startEventSource();
+    }).catch(() => startEventSource());
+
+    function startEventSource() {
+        const es = new EventSource('/api/stream');
+
+        es.addEventListener('update', e => {
+            const pl = JSON.parse(e.data);
+            if (marketOpen) {
+                dot.className = 'dot live';
+                st.textContent = 'Live';
+            } else {
+                dot.className = 'dot off';
+                st.textContent = 'Markets Closed';
+            }
+            ingest(pl);
+            toast(marketOpen ? '✓ Charts updated' : '✓ Loaded last available data');
+        });
+
+        es.addEventListener('tick', e => {
+            const pl = JSON.parse(e.data);
+            setRing(pl.next_in);
+        });
+
+        es.addEventListener('error', e => {
+            try { toast('⚠ ' + JSON.parse(e.data).error, 4000); } catch { }
+        });
+
+        es.addEventListener('market_status', e => {
+            const { open } = JSON.parse(e.data);
+            marketOpen = open;
+            if (open) {
+                dot.className = 'dot live';
+                st.textContent = 'Live';
+            } else {
+                dot.className = 'dot off';
+                st.textContent = 'Markets Closed';
+                document.getElementById('nextIn').textContent = '—';
+            }
+        });
+
+        es.onerror = () => {
+            dot.className = 'dot err';
+            st.textContent = 'Reconnecting…';
+        };
+
+        es.addEventListener('expiry_list', (e) => {
+            const { expiries, selected } = JSON.parse(e.data);
+            const sel = document.getElementById('expSel');
+            sel.innerHTML = '';
+            expiries.forEach((exp) => {
+                const opt = document.createElement('option');
+                opt.value = exp;
+                opt.textContent = exp;
+                sel.appendChild(opt);
+            });
+            if (!expiry) {
+                expiry = selected || expiries[0];
+            }
+            sel.value = expiry;
+            render();
+        });
+    }
 }
 
 connectSSE();
 
 document.getElementById('expSel').addEventListener('change', async (e) => {
-  expiry = e.target.value;
-  document.getElementById('dot').className = 'dot'; // optional: show "updating" state
-  await fetch('/select_expiry', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ expiry }),
-  });
-  // don't render here — next `update` SSE event will bring correctly-scoped data
+  const newExpiry = e.target.value;
+  document.getElementById('dot').className = 'dot';
+  try {
+    const res = await fetch('/select_expiry', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ expiry: newExpiry }),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.ok) {
+      toast('⚠ ' + (data.error || 'Failed to switch expiry'), 4000);
+      e.target.value = expiry;
+      return;
+    }
+    expiry = newExpiry;
+  } catch (err) {
+    toast('⚠ Network error switching expiry', 4000);
+    e.target.value = expiry;
+  }
 });
 
 const slider = document.getElementById('slider');
@@ -322,3 +361,11 @@ document.getElementById('btnStrike').addEventListener('click', () => {
     document.getElementById('btnOI').textContent = 'Sort: OI';
     render();
 });
+
+const logoutBtn = document.getElementById('logoutBtn');
+if (logoutBtn) {
+    logoutBtn.addEventListener('click', async () => {
+        await fetch('/logout', { method: 'POST' });
+        window.location.href = '/login';
+    });
+}
