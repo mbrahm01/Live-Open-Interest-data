@@ -38,8 +38,8 @@ def make_session() -> requests.Session:
     return s
 
 
-def fetch_once(session: requests.Session, expiry=None):
-    params = {"symbol": "NIFTY"}
+def fetch_once(session, symbol="NIFTY", expiry=None):
+    params = {"symbol": symbol}
     if expiry:
         params["expiry"] = expiry
     try:
@@ -47,17 +47,15 @@ def fetch_once(session: requests.Session, expiry=None):
         resp.raise_for_status()
         return resp.json()
     except Exception as exc:
-        log.error("Fetch error: %s", exc)
+        log.error("Fetch error (symbol=%s): %s", symbol, exc)
         return None
 
-
-def fetch_expiry_dates(session):
-    """One-time call to a separate endpoint that just returns contract/expiry dates."""
+def fetch_expiry_dates(session, symbol="NIFTY"):
     try:
-        resp = session.get(EXPIRY_URL, params={"symbol": "NIFTY"}, timeout=5)
+        resp = session.get(EXPIRY_URL, params={"symbol": symbol}, timeout=5)
         resp.raise_for_status()
         payload = resp.json()
         return payload.get("expiryDates", [])
     except Exception:
-        log.exception("Failed to fetch expiry dates")
+        log.exception("Failed to fetch expiry dates for symbol=%s", symbol)
         return []

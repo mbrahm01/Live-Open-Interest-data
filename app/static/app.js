@@ -17,6 +17,7 @@ function toast(msg, ms = 2500) {
 let rawData = null;
 let charts = {};
 let expiry = '';
+let indexSymbol = ''; // e.g. NIFTY, BANKNIFTY — set from the index_list event
 let topN = 30;
 let marketOpen = true; // assume open until the market_status event says otherwise
 let sortOI = false;
@@ -98,7 +99,7 @@ function parseOI(data, expiry, topN, sortOI) {
     return { strikes, ceOI, peOI, ceChg, peChg, totalCe, totalPe, pcr, spot, maxPain };
 }
 
-function updateMetrics(p, exp) {
+function updateMetrics(p, exp, idx) {
     document.getElementById('mSpot').textContent = fmt(p.spot);
     document.getElementById('mCeOi').textContent = fmtL(p.totalCe);
     document.getElementById('mPeOi').textContent = fmtL(p.totalPe);
@@ -109,7 +110,7 @@ function updateMetrics(p, exp) {
         p.pcr >= 1.2 ? 'Bullish 🐂' : p.pcr <= 0.8 ? 'Bearish 🐻' : 'Neutral';
     document.getElementById('mMP').textContent = fmt(p.maxPain);
     document.getElementById('mN').textContent = p.strikes.length;
-    document.getElementById('mExp').textContent = exp || 'All expiries';
+    document.getElementById('mExp').textContent = [idx, exp].filter(Boolean).join(' · ') || 'All expiries';
 }
 
 const GRID = 'rgba(48,54,61,0.5)';
@@ -222,7 +223,7 @@ function mkLine(p) {
 function render() {
     if (!rawData) return;
     const p = parseOI(rawData, expiry, topN, sortOI);
-    updateMetrics(p, expiry);
+    updateMetrics(p, expiry, indexSymbol);
     mkOI(p);
     mkChg(p);
     mkLine(p);
@@ -304,16 +305,59 @@ function connectSSE() {
                 opt.textContent = exp;
                 sel.appendChild(opt);
             });
-            if (!expiry) {
-                expiry = selected || expiries[0];
-            }
+            // Server is authoritative here — fires on startup AND whenever the
+            // index changes (new index = new expiry list), so always follow
+            // its `selected` value rather than only filling in when empty.
+            expiry = selected || expiries[0] || '';
             sel.value = expiry;
             render();
+        });
+
+        es.addEventListener('index_list', (e) => {
+            const { indexes, selected } = JSON.parse(e.data);
+            const sel = document.getElementById('indexSel');
+            if (!sel) return;
+            sel.innerHTML = '';
+            indexes.forEach((idx) => {
+                const opt = document.createElement('option');
+                opt.value = idx;
+                opt.textContent = idx;
+                sel.appendChild(opt);
+            });
+            indexSymbol = selected || indexes[0] || '';
+            sel.value = indexSymbol;
         });
     }
 }
 
 connectSSE();
+
+const indexSelEl = document.getElementById('indexSel');
+if (indexSelEl) {
+  indexSelEl.addEventListener('change', async (e) => {
+    const newIndex = e.target.value;
+    document.getElementById('dot').className = 'dot';
+    try {
+      const res = await fetch('/select_index', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ index: newIndex }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        toast('⚠ ' + (data.error || 'Failed to switch index'), 4000);
+        e.target.value = indexSymbol;
+        return;
+      }
+      indexSymbol = newIndex;
+      // don't render here — the server will broadcast a fresh expiry_list
+      // followed by an update event for the new index
+    } catch (err) {
+      toast('⚠ Network error switching index', 4000);
+      e.target.value = indexSymbol;
+    }
+  });
+}
 
 document.getElementById('expSel').addEventListener('change', async (e) => {
   const newExpiry = e.target.value;

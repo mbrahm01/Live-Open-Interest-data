@@ -4,7 +4,7 @@ from queue import Empty, Queue
 from flask import Blueprint, Response, jsonify, render_template, request
 
 from .auth import login_required
-from .poller import broadcast, set_selected_expiry, state, state_lock, subscribers, subscribers_lock
+from .poller import broadcast, set_selected_expiry, set_selected_index, state, state_lock, subscribers, subscribers_lock
 
 main_bp = Blueprint("main", __name__)
 
@@ -28,6 +28,7 @@ def api_data():
                 "error": state["error"],
                 "next_in": state["next_in"],
                 "market_open": state.get("market_open"),
+                "index": state.get("selected_index"),
             }
         )
 
@@ -44,6 +45,18 @@ def select_expiry():
     return {"ok": False, "error": "invalid expiry"}, 400
 
 
+@main_bp.route("/select_index", methods=["POST"])
+@login_required
+def select_index():
+    body = request.get_json(silent=True) or {}
+    index = (body.get("index") or "").strip().upper()
+    if not index:
+        return {"ok": False, "error": "missing index"}, 400
+    if set_selected_index(index):
+        return {"ok": True}, 200
+    return {"ok": False, "error": "invalid index"}, 400
+
+
 @main_bp.route("/api/stream")
 @login_required
 def api_stream():
@@ -52,6 +65,15 @@ def api_stream():
         subscribers.append(q)
 
     with state_lock:
+        if state.get("available_indexes"):
+            index_payload = json.dumps(
+                {
+                    "indexes": state["available_indexes"],
+                    "selected": state.get("selected_index"),
+                }
+            )
+            q.put_nowait(f"event: index_list\ndata: {index_payload}\n\n")
+
         if state.get("market_open") is not None:
             q.put_nowait(f"event: market_status\ndata: {json.dumps({'open': state['market_open']})}\n\n")
 
@@ -72,6 +94,7 @@ def api_stream():
                     "error": state["error"],
                     "next_in": state["next_in"],
                     "expiry": state.get("selected_expiry"),
+                    "index": state.get("selected_index"),
                 }
             )
             q.put_nowait(f"event: update\ndata: {payload}\n\n")
