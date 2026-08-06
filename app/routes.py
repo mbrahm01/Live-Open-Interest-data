@@ -4,7 +4,17 @@ from queue import Empty, Queue
 from flask import Blueprint, Response, jsonify, render_template, request
 
 from .auth import login_required
-from .poller import broadcast, set_selected_expiry, set_selected_index, state, state_lock, subscribers, subscribers_lock
+from .poller import (
+    broadcast,
+    set_selected_expiry,
+    set_selected_index,
+    set_selected_mode,
+    set_selected_stock,
+    state,
+    state_lock,
+    subscribers,
+    subscribers_lock,
+)
 
 main_bp = Blueprint("main", __name__)
 
@@ -18,6 +28,16 @@ def index():
 @main_bp.route("/api/data")
 @login_required
 def api_data():
+    """Snapshot for initial page load. Accepts ?type=index|stock&symbol=X so a
+    fresh page load can request a specific view directly, same params as the
+    SSE stream / select_* routes use."""
+    req_type = request.args.get("type")
+    req_symbol = request.args.get("symbol")
+    if req_type == "index" and req_symbol:
+        set_selected_index(req_symbol)
+    elif req_type == "stock" and req_symbol:
+        set_selected_stock(req_symbol)
+
     with state_lock:
         if state["data"] is None:
             return jsonify({"error": "No data yet — first fetch in progress"}), 503
@@ -28,7 +48,8 @@ def api_data():
                 "error": state["error"],
                 "next_in": state["next_in"],
                 "market_open": state.get("market_open"),
-                "index": state.get("selected_index"),
+                "mode": state.get("mode"),
+                "symbol": state.get("symbol"),
             }
         )
 
@@ -57,6 +78,35 @@ def select_index():
     return {"ok": False, "error": "invalid index"}, 400
 
 
+@main_bp.route("/select_stock", methods=["POST"])
+@login_required
+def select_stock():
+    body = request.get_json(silent=True) or {}
+    symbol = (body.get("symbol") or "").strip().upper()
+    if not symbol:
+        return {"ok": False, "error": "missing symbol"}, 400
+    if set_selected_stock(symbol):
+        return {"ok": True}, 200
+    return {"ok": False, "error": "invalid or non-F&O symbol"}, 400
+
+
+@main_bp.route("/select_mode", methods=["POST"])
+@login_required
+def select_mode():
+    """Switches the Index/Stocks toggle. This alone stops the poller from
+    fetching the previous mode's symbol — set_selected_mode() flips
+    state['mode'], and the poller loop only ever fetches whatever
+    state['mode'] currently points to, so there's never simultaneous
+    polling of both an index and a stock."""
+    body = request.get_json(silent=True) or {}
+    mode = (body.get("mode") or "").strip().lower()
+    if mode not in ("index", "stock"):
+        return {"ok": False, "error": "mode must be 'index' or 'stock'"}, 400
+    if set_selected_mode(mode):
+        return {"ok": True}, 200
+    return {"ok": False, "error": "failed to switch mode"}, 400
+
+
 @main_bp.route("/api/stream")
 @login_required
 def api_stream():
@@ -73,6 +123,18 @@ def api_stream():
                 }
             )
             q.put_nowait(f"event: index_list\ndata: {index_payload}\n\n")
+
+        if state.get("available_stocks"):
+            stock_payload = json.dumps(
+                {
+                    "stocks": state["available_stocks"],
+                    "selected": state.get("selected_stock"),
+                }
+            )
+            q.put_nowait(f"event: stock_list\ndata: {stock_payload}\n\n")
+
+        mode_payload = json.dumps({"mode": state.get("mode", "index")})
+        q.put_nowait(f"event: mode\ndata: {mode_payload}\n\n")
 
         if state.get("market_open") is not None:
             q.put_nowait(f"event: market_status\ndata: {json.dumps({'open': state['market_open']})}\n\n")
@@ -94,7 +156,7 @@ def api_stream():
                     "error": state["error"],
                     "next_in": state["next_in"],
                     "expiry": state.get("selected_expiry"),
-                    "index": state.get("selected_index"),
+                    "symbol": state.get("symbol"),
                 }
             )
             q.put_nowait(f"event: update\ndata: {payload}\n\n")

@@ -6,6 +6,16 @@
 <title>NSE OI Dashboard</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+<style>
+  /* styles.css wasn't included in the upload, so the toggle is styled
+     inline here — move these rules into styles.css whenever convenient. */
+  .mode-toggle { display: inline-flex; border: 1px solid #30363d; border-radius: 6px; overflow: hidden; }
+  .toggle-btn { background: transparent; color: #8b949e; border: none; padding: 4px 12px;
+                font-size: 12px; cursor: pointer; }
+  .toggle-btn.on { background: #58a6ff; color: #0d1117; font-weight: 600; }
+  #stockSel, #indexSel, #expSel { background: #161b22; color: #c9d1d9; border: 1px solid #30363d;
+                                   border-radius: 6px; padding: 3px 6px; font-size: 12px; }
+</style>
 </head>
 <body>
 
@@ -26,7 +36,14 @@
       </svg>
       <span id="nextIn">—</span>
     </div>
-    <select id="indexSel" title="Index"></select>
+    <div class="mode-toggle" role="group" aria-label="Index or Stocks">
+      <button id="toggleIndex" class="toggle-btn on">Index</button>
+      <button id="toggleStocks" class="toggle-btn">Stocks</button>
+    </div>
+    <span id="indexSelWrap"><select id="indexSel" title="Index"></select></span>
+    <span id="stockSelWrap" style="display:none">
+      <select id="stockSel" title="Stock"><option value="">Select a stock…</option></select>
+    </span>
     <select id="expSel" title="Expiry"><option value="">All expiries</option></select>
     <span id="ts">—</span>
   </div>
