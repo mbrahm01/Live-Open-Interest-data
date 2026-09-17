@@ -248,6 +248,7 @@ function ingest(payload) {
     document.getElementById('splash').style.display = 'none';
     document.getElementById('main').style.display = 'block';
     render();
+    if (window.onStrategyDataUpdate) window.onStrategyDataUpdate(rawData, activeSymbol());
 }
 
 // --- Toggle UI: show/hide the index vs stock selector, keep them mutually

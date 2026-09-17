@@ -15,6 +15,60 @@
   .toggle-btn.on { background: #58a6ff; color: #0d1117; font-weight: 600; }
   #stockSel, #indexSel, #expSel { background: #161b22; color: #c9d1d9; border: 1px solid #30363d;
                                    border-radius: 6px; padding: 3px 6px; font-size: 12px; }
+
+  /* Strategy builder — same inline-addition pattern as the toggle above. */
+  .sb-toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
+  .sb-presets { display: flex; gap: 6px; flex-wrap: wrap; }
+  .sb-preset { background: transparent; border: 1px solid #30363d; color: #c9d1d9; border-radius: 6px;
+               padding: 4px 10px; font-size: 12px; cursor: pointer; }
+  .sb-preset:hover { border-color: #58a6ff; }
+  .sb-lotwrap { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #8b949e; margin-left: auto; }
+  #sbLotSize { width: 70px; background: #161b22; color: #c9d1d9; border: 1px solid #30363d;
+               border-radius: 6px; padding: 3px 6px; font-size: 12px; }
+  #sbLegs { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
+  .sb-leg-row { display: grid; grid-template-columns: 90px 90px 100px 110px 90px 32px;
+                gap: 8px; align-items: center; }
+  .sb-leg-row select, .sb-leg-row input { background: #161b22; color: #c9d1d9; border: 1px solid #30363d;
+                                            border-radius: 6px; padding: 4px 6px; font-size: 12px; width: 100%; }
+  .sb-remove { background: transparent; border: 1px solid #30363d; color: #ef4444; border-radius: 6px;
+               cursor: pointer; font-size: 12px; padding: 4px 0; }
+  .sb-remove:hover { background: rgba(239,68,68,0.1); }
+  .sb-empty { color: #8b949e; font-size: 13px; padding: 8px 0; }
+  #sbAddLeg, #sbClear { background: transparent; border: 1px solid #30363d; color: #c9d1d9; border-radius: 6px;
+                         padding: 5px 14px; font-size: 13px; cursor: pointer; }
+  #sbAddLeg { border-color: #58a6ff; }
+  #sbClear:hover { border-color: #ef4444; color: #ef4444; }
+  .sb-legbar { display: flex; gap: 10px; margin-bottom: 16px; }
+  #sbStats { display: grid; grid-template-columns: repeat(auto-fit, minmax(148px, 1fr));
+             gap: 12px; margin-bottom: 16px; }
+  .sb-chart-wrap { position: relative; width: 100%; height: 360px; }
+
+  /* Save bar + paper trading */
+  .sb-savebar { display: flex; gap: 8px; margin-top: 16px; flex-wrap: wrap; }
+  #sbTradeName { flex: 1 1 260px; background: #161b22; color: #c9d1d9; border: 1px solid #30363d;
+                 border-radius: 6px; padding: 6px 10px; font-size: 13px; }
+  #sbSaveTrade { background: transparent; border: 1px solid #22c55e; color: #22c55e; border-radius: 6px;
+                 padding: 6px 16px; font-size: 13px; cursor: pointer; }
+  #sbSaveTrade:hover { background: rgba(34,197,94,0.1); }
+  #sbPaperSummary { display: grid; grid-template-columns: repeat(auto-fit, minmax(148px, 1fr));
+                    gap: 12px; margin-bottom: 16px; }
+  #sbTrades { overflow-x: auto; }
+  .sb-table { width: 100%; border-collapse: collapse; font-size: 12px; white-space: nowrap; }
+  .sb-table th { text-align: left; color: #8b949e; font-weight: 500; text-transform: uppercase;
+                 font-size: 10px; letter-spacing: 0.6px; padding: 6px 10px 6px 0;
+                 border-bottom: 1px solid #30363d; }
+  .sb-table td { padding: 8px 10px 8px 0; border-bottom: 1px solid rgba(48,54,61,0.6); }
+  .sb-dim { color: #8b949e; }
+  .sb-legs { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; }
+  .sb-pill { font-size: 10px; padding: 2px 8px; border-radius: 20px; border: 1px solid #30363d; }
+  .sb-pill.open { color: #58a6ff; border-color: #58a6ff; }
+  .sb-pill.closed { color: #8b949e; }
+  .sb-actions { display: flex; gap: 6px; }
+  .sb-mini { background: transparent; border: 1px solid #30363d; color: #c9d1d9; border-radius: 5px;
+             padding: 3px 9px; font-size: 11px; cursor: pointer; }
+  .sb-mini:hover { border-color: #58a6ff; }
+  .sb-mini.danger { color: #ef4444; }
+  .sb-mini.danger:hover { border-color: #ef4444; background: rgba(239,68,68,0.1); }
 </style>
 </head>
 <body>
@@ -116,6 +170,55 @@
         <canvas id="lineC" role="img" aria-label="CE and PE OI distribution across strikes"></canvas>
       </div>
     </div>
+
+    <!-- Strategy Builder -->
+    <div class="panel">
+      <div class="ph">
+        <div class="pt">Strategy builder — payoff at expiry</div>
+      </div>
+
+      <div class="sb-toolbar">
+        <div class="sb-presets">
+          <button class="sb-preset" data-preset="long_straddle">Long Straddle</button>
+          <button class="sb-preset" data-preset="long_strangle">Long Strangle</button>
+          <button class="sb-preset" data-preset="bull_call_spread">Bull Call Spread</button>
+          <button class="sb-preset" data-preset="bear_put_spread">Bear Put Spread</button>
+          <button class="sb-preset" data-preset="iron_condor">Iron Condor</button>
+        </div>
+        <div class="sb-lotwrap">
+          <span>Lot size:</span>
+          <input type="number" id="sbLotSize" min="1" step="1" value="75" />
+        </div>
+      </div>
+
+      <div id="sbLegs"></div>
+
+      <div class="sb-legbar">
+        <button id="sbAddLeg">+ Add leg</button>
+        <button id="sbClear">Clear all</button>
+      </div>
+
+      <div id="sbStats"></div>
+
+      <div class="sb-chart-wrap" id="sbChartWrap">
+        <canvas id="sbChart" role="img" aria-label="Strategy payoff chart at expiry"></canvas>
+      </div>
+
+      <div class="sb-savebar">
+        <input type="text" id="sbTradeName" maxlength="80" placeholder="Name this strategy (e.g. Weekly bull spread)" />
+        <button id="sbSaveTrade">Save strategy</button>
+      </div>
+    </div>
+
+    <!-- Paper trading -->
+    <div class="panel">
+      <div class="ph">
+        <div class="pt">Paper trades</div>
+        <div class="leg"><span>Marked against live LTPs</span></div>
+      </div>
+      <div id="sbPaperSummary"></div>
+      <div id="sbTrades"></div>
+    </div>
   </div>
 
   <footer>NSE Option Chain · Python backend auto-refreshes every 60 s · Data from NSE India</footer>
@@ -123,6 +226,7 @@
 
 <div id="toast"></div>
 
-<script src="{{ url_for('static', filename='app.js') }}"></script>
+<script src="{{ url_for('static', filename='app.js') }}?v={{ range(100000,999999)|random }}"></script>
+<script src="{{ url_for('static', filename='strategy.js') }}?v={{ range(100000,999999)|random }}"></script>
 </body>
 </html>

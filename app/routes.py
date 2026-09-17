@@ -4,6 +4,7 @@ from queue import Empty, Queue
 from flask import Blueprint, Response, jsonify, render_template, request
 
 from .auth import login_required
+from .paper import close_trade, delete_trade, list_trades, save_trade
 from .poller import (
     broadcast,
     set_selected_expiry,
@@ -178,3 +179,48 @@ def api_stream():
         mimetype="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+# ---------------- Paper trading ----------------
+# Saved strategies are stored server-side so they survive a page reload,
+# a browser change, or a server restart. P&L marks are computed client-side
+# (the browser already holds the live chain) and only recorded here.
+
+
+@main_bp.route("/api/paper/trades", methods=["GET"])
+@login_required
+def paper_list():
+    return jsonify({"trades": list_trades()})
+
+
+@main_bp.route("/api/paper/trades", methods=["POST"])
+@login_required
+def paper_save():
+    body = request.get_json(silent=True) or {}
+    try:
+        trade = save_trade(body)
+    except ValueError as exc:
+        return {"ok": False, "error": str(exc)}, 400
+    return jsonify({"ok": True, "trade": trade}), 201
+
+
+@main_bp.route("/api/paper/trades/<trade_id>/close", methods=["POST"])
+@login_required
+def paper_close(trade_id):
+    body = request.get_json(silent=True) or {}
+    if "pnl" not in body:
+        return {"ok": False, "error": "missing pnl"}, 400
+    try:
+        trade = close_trade(trade_id, body.get("pnl"), body.get("spotAtExit"))
+    except ValueError as exc:
+        return {"ok": False, "error": str(exc)}, 400
+    if trade is None:
+        return {"ok": False, "error": "trade not found"}, 404
+    return jsonify({"ok": True, "trade": trade})
+
+
+@main_bp.route("/api/paper/trades/<trade_id>", methods=["DELETE"])
+@login_required
+def paper_delete(trade_id):
+    if not delete_trade(trade_id):
+        return {"ok": False, "error": "trade not found"}, 404
+    return jsonify({"ok": True})
